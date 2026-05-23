@@ -12,7 +12,7 @@ MODEL_NAME = "yainage90/fashion-object-detection"
 print("Loading DETR Fashion Model...")
 processor = AutoImageProcessor.from_pretrained(MODEL_NAME)
 model = AutoModelForObjectDetection.from_pretrained(MODEL_NAME)
-model.eval() # Tell the model it is in inference mode
+model.eval() # Put the model in pure inference mode
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
@@ -20,7 +20,7 @@ async def predict(file: UploadFile = File(...)):
         contents = await file.read()
         image = Image.open(io.BytesIO(contents)).convert("RGB")
         
-        # MEMORY FIX: Automatically resize huge images to a safe maximum
+        # MEMORY FIX: Automatically resize huge images
         max_size = 800
         if max(image.size) > max_size:
             ratio = max_size / max(image.size)
@@ -28,10 +28,11 @@ async def predict(file: UploadFile = File(...)):
             image = image.resize(new_size, Image.Resampling.LANCZOS)
 
         with torch.no_grad():
-            inputs = processor(images=image, return_tensors="pt")
+            # THE FIX: Added padding=True and formatted the image exactly as the docs requested!
+            inputs = processor(images=[image], return_tensors="pt", padding=True)
             outputs = model(**inputs)
             
-            target_sizes = torch.tensor([image.size[::-1]])
+            target_sizes = torch.tensor([[image.size[1], image.size[0]]])
             results = processor.post_process_object_detection(outputs, threshold=0.4, target_sizes=target_sizes)[0]
         
         boxes_list = []
@@ -54,7 +55,7 @@ async def predict(file: UploadFile = File(...)):
         }
         
     except Exception as e:
-        # If it crashes, send the exact error back to the user!
+        # Our beautiful error catcher!
         from fastapi import HTTPException
         raise HTTPException(status_code=500, detail=f"AI Crash: {str(e)}")
 
