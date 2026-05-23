@@ -10,37 +10,40 @@ app = FastAPI()
 
 MODEL_NAME = "yainage90/fashion-object-detection"
 
-# 1. Load the Hugging Face Processor and Model
 print("Loading DETR Fashion Model...")
 processor = AutoImageProcessor.from_pretrained(MODEL_NAME)
 model = AutoModelForObjectDetection.from_pretrained(MODEL_NAME)
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
-    # Read image using Pillow (instead of OpenCV)
     contents = await file.read()
     image = Image.open(io.BytesIO(contents)).convert("RGB")
     
-    # 2. Run AI Inference
-    inputs = processor(images=image, return_tensors="pt")
-    outputs = model(**inputs)
+    # THE FIX: Tell PyTorch to turn off gradient tracking to save RAM!
+    with torch.no_grad():
+        inputs = processor(images=[image], return_tensors="pt")
+        outputs = model(**inputs)
+        
+        # The exact target size format from the documentation
+        target_sizes = torch.tensor([[image.size[1], image.size[0]]])
+        
+        # Using the author's recommended 0.4 threshold
+        results = processor.post_process_object_detection(outputs, threshold=0.4, target_sizes=target_sizes)[0]
     
-    # 3. Post-process the bounding boxes to match the image size
-    # We are setting a confidence threshold of 50% (0.5)
-    target_sizes = torch.tensor([image.size[::-1]])
-    results = processor.post_process_object_detection(outputs, target_sizes=target_sizes, threshold=0.5)[0]
+    boxes_list = []
+    classes_list = []
+    confidences_list = []
     
-    boxes = results["boxes"].tolist()
-    scores = results["scores"].tolist()
-    labels = results["labels"].tolist()
-    
-    # 4. Map the AI's internal ID numbers back to human-readable fashion words
-    class_names = [model.config.id2label[label] for label in labels]
-    
+    # The exact data extraction loop from the documentation
+    for score, label, box in zip(results["scores"], results["labels"], results["boxes"]):
+        confidences_list.append(score.item())
+        classes_list.append(model.config.id2label[label.item()])
+        boxes_list.append([i.item() for i in box])
+        
     return {
-        "boxes": boxes, 
-        "classes": class_names, 
-        "confidences": scores
+        "boxes": boxes_list, 
+        "classes": classes_list, 
+        "confidences": confidences_list
     }
 
 if __name__ == "__main__":
