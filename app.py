@@ -19,25 +19,27 @@ async def predict(file: UploadFile = File(...)):
     contents = await file.read()
     image = Image.open(io.BytesIO(contents)).convert("RGB")
     
-    # THE FIX: Tell PyTorch to turn off gradient tracking to save RAM!
+    # Tell PyTorch to turn off gradient tracking to save RAM!
     with torch.no_grad():
         inputs = processor(images=[image], return_tensors="pt")
         outputs = model(**inputs)
         
-        # The exact target size format from the documentation
         target_sizes = torch.tensor([[image.size[1], image.size[0]]])
-        
-        # Using the author's recommended 0.4 threshold
         results = processor.post_process_object_detection(outputs, threshold=0.4, target_sizes=target_sizes)[0]
     
     boxes_list = []
     classes_list = []
     confidences_list = []
     
-    # The exact data extraction loop from the documentation
     for score, label, box in zip(results["scores"], results["labels"], results["boxes"]):
         confidences_list.append(score.item())
-        classes_list.append(model.config.id2label[label.item()])
+        
+        # THE FAIL-SAFE DICTIONARY LOOKUP
+        label_id = label.item()
+        # Try integer first, then try string, fallback to "Unknown" if it's completely missing
+        class_name = model.config.id2label.get(label_id, model.config.id2label.get(str(label_id), "Unknown"))
+        classes_list.append(class_name)
+        
         boxes_list.append([i.item() for i in box])
         
     return {
