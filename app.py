@@ -4,45 +4,61 @@ import torch
 from transformers import AutoImageProcessor, AutoModelForObjectDetection
 import io
 import os
+import urllib.request
 
 app = FastAPI(title="Fashion Visual Search API")
 
-MODEL_NAME = "yainage90/fashion-object-detection"
-HF_TOKEN = os.environ.get("HF_TOKEN")
+# Local folder to store the downloaded files inside the container
+MODEL_DIR = "./local_model"
+os.makedirs(MODEL_DIR, exist_ok=True)
 
-# Define these as global variables so we can load them after the server starts
+# Direct unauthenticated Hugging Face resolve URLs
+MODEL_URLS = {
+    "config.json": "https://huggingface.co/yainage90/fashion-object-detection/resolve/main/config.json",
+    "preprocessor_config.json": "https://huggingface.co/yainage90/fashion-object-detection/resolve/main/preprocessor_config.json",
+    "model.safetensors": "https://huggingface.co/yainage90/fashion-object-detection/resolve/main/model.safetensors"
+}
+
 processor = None
 model = None
 
 @app.on_event("startup")
 async def load_model():
-    """This runs AFTER port 8080 is open, preventing Cloud Run timeouts!"""
     global processor, model
-    if not HF_TOKEN:
-        print("🚨 WARNING: HF_TOKEN environment variable is missing!")
     
-    print("Downloading and loading model from Hugging Face...")
-    processor = AutoImageProcessor.from_pretrained(MODEL_NAME, token=HF_TOKEN)
-    model = AutoModelForObjectDetection.from_pretrained(MODEL_NAME, token=HF_TOKEN)
-    print("Model loaded successfully!")
+    try:
+        for filename, url in MODEL_URLS.items():
+            destination = os.path.join(MODEL_DIR, filename)
+            
+            if not os.path.exists(destination):
+                print(f"Trying direct unauthenticated download for {filename}...")
+                urllib.request.urlretrieve(url, destination)
+                print(f"Successfully downloaded {filename}!")
+                
+        print("Loading model into memory from local storage...")
+        processor = AutoImageProcessor.from_pretrained(MODEL_DIR)
+        model = AutoModelForObjectDetection.from_pretrained(MODEL_DIR)
+        print("Model is fully loaded and ready!")
+        
+    except Exception as e:
+        print(f"🚨 Download failed or was rate-limited! Error: {e}")
+        # We don't raise the error here so the container stays alive on port 8080 
+        # allowing you to check the logs cleanly.
 
 @app.get("/")
 def health_check():
-    # If the model isn't loaded yet, tell the health checker it's starting
-    status = "healthy" if model is not None else "starting up"
-    return {"status": status, "model": MODEL_NAME}
+    if model is not None:
+        return {"status": "healthy", "method": "Direct HF URL (Success)"}
+    return {"status": "starting up or download failed", "check_logs": "Look at Logs Explorer for errors"}
 
 @app.post("/detect")
 async def detect_fashion(file: UploadFile = File(...)):
     global processor, model
-    
-    # Catch any requests that come in before the download finishes
     if processor is None or model is None:
-        return {"error": "Model is still downloading into the container. Try again in a few seconds!"}
+        return {"error": "Model is not loaded. The download might have been blocked or is still running."}
         
     contents = await file.read()
     image = Image.open(io.BytesIO(contents)).convert("RGB")
-    
     inputs = processor(images=[image], return_tensors="pt")
     
     with torch.no_grad():
