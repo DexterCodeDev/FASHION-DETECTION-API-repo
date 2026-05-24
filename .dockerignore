@@ -1,27 +1,11 @@
-# Git
 .git
 .gitignore
 .github
-
-# Python environment artifacts
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
-.Python
 env/
 venv/
 .venv/
-pip-log.txt
-pip-delete-this-directory.txt
-.toast/
-.spyderproject
-.settings
-
-# Jupyter Notebooks from original repo
 .ipynb_checkpoints/
 *.ipynb
-
-# Local data or environments
 .env
-.gcp_credentials.json
