@@ -3,12 +3,18 @@ from PIL import Image
 import torch
 from transformers import AutoImageProcessor, AutoModelForObjectDetection
 import io
+import os
 
 app = FastAPI(title="Fashion Visual Search API")
 
 MODEL_NAME = "yainage90/fashion-object-detection"
-processor = AutoImageProcessor.from_pretrained(MODEL_NAME)
-model = AutoModelForObjectDetection.from_pretrained(MODEL_NAME)
+
+# Grab the token from Cloud Run's environment variables
+HF_TOKEN = os.environ.get("HF_TOKEN")
+
+# Pass the token so Hugging Face allows the download
+processor = AutoImageProcessor.from_pretrained(MODEL_NAME, token=HF_TOKEN)
+model = AutoModelForObjectDetection.from_pretrained(MODEL_NAME, token=HF_TOKEN)
 
 @app.get("/")
 def health_check():
