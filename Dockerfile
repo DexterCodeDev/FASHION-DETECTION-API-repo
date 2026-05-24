@@ -1,27 +1,27 @@
 FROM python:3.9-slim
 
-# Prevent Python from writing pyc files to disk and buffering stdout/stderr
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Install system dependencies needed for image processing if any
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install python packages
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
-# Copy application files
+# Pre-download the Hugging Face model directly into the Docker image
+# This prevents Cloud Run from timing out on cold starts
+RUN python -c "from transformers import AutoImageProcessor, AutoModelForObjectDetection; \
+               AutoImageProcessor.from_pretrained('yainage90/fashion-object-detection'); \
+               AutoModelForObjectDetection.from_pretrained('yainage90/fashion-object-detection')"
+
 COPY app.py .
 
-# Cloud Run injects a PORT environment variable dynamically (defaults to 8080)
 ENV PORT=8080
 EXPOSE 8080
 
-# Run Uvicorn production server
 CMD uvicorn app:app --host 0.0.0.0 --port ${PORT}
