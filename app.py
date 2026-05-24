@@ -1,59 +1,44 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, UploadFile, File
 from PIL import Image
 import torch
 from transformers import AutoImageProcessor, AutoModelForObjectDetection
-import io
-import os
 
-app = FastAPI(title="Fashion Object Detection API")
+app = FastAPI()
 
-# Define the model checkpoint
-ckpt = 'yainage90/fashion-object-detection'
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# Load once at startup
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model_id = "yainage90/fashion-object-detection"
 
-# Fetch the token you added in the Cloud Run Console
-hf_token = os.environ.get("HF_TOKEN")
+processor = AutoImageProcessor.from_pretrained(model_id)
+model = AutoModelForObjectDetection.from_pretrained(model_id).to(device)
 
-# Load the model globally with the token to bypass the rate limit
-print("Loading model and processor...")
-processor = AutoImageProcessor.from_pretrained(ckpt, token=hf_token)
-model = AutoModelForObjectDetection.from_pretrained(ckpt, token=hf_token).to(device)
-print("Model loaded successfully.")
 
-@app.post("/predict/")
-async def predict(file: UploadFile = File(...), threshold: float = 0.4):
-    # Validate file type
-    if not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="File must be an image.")
+@app.post("/detect")
+async def detect(file: UploadFile = File(...)):
+    # validate image
+    if not file.filename.lower().endswith((".jpg", ".jpeg", ".png")):
+        return {"error": "Only JPG, JPEG, PNG images are allowed"}
 
-    try:
-        image_bytes = await file.read()
-        image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid image format: {e}")
+    image = Image.open(file.file).convert("RGB")
 
-    # Run Inference
+    inputs = processor(images=[image], return_tensors="pt").to(device)
+
     with torch.no_grad():
-        inputs = processor(images=[image], return_tensors="pt")
-        outputs = model(**inputs.to(device))
-        
+        outputs = model(**inputs)
         target_sizes = torch.tensor([[image.size[1], image.size[0]]])
         results = processor.post_process_object_detection(
-            outputs, threshold=threshold, target_sizes=target_sizes
+            outputs, threshold=0.4, target_sizes=target_sizes
         )[0]
 
-        # Format results
-        detections = []
-        for score, label, box in zip(results["scores"], results["labels"], results["boxes"]):
-            detections.append({
-                "label": model.config.id2label[label.item()],
-                "score": round(score.item(), 3),
-                "box": [round(i, 2) for i in box.tolist()]
-            })
+    # Format response
+    detections = []
+    for score, label, box in zip(
+        results["scores"], results["labels"], results["boxes"]
+    ):
+        detections.append({
+            "score": float(score.item()),
+            "label": model.config.id2label[int(label.item())],
+            "box": [float(x.item()) for x in box],
+        })
 
-    return JSONResponse(content={"detections": detections})
-
-@app.get("/health")
-def health_check():
-    return {"status": "healthy"}
+    return {"detections": detections}
