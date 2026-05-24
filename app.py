@@ -8,24 +8,38 @@ import os
 app = FastAPI(title="Fashion Visual Search API")
 
 MODEL_NAME = "yainage90/fashion-object-detection"
-
-# Grab the token from Cloud Run's environment variables
 HF_TOKEN = os.environ.get("HF_TOKEN")
 
-# Fail instantly if the token is missing so we don't hit the 429 rate limit
-if not HF_TOKEN:
-    raise ValueError("🚨 MISSING TOKEN: Cloud Run could not find the HF_TOKEN environment variable!")
+# Define these as global variables so we can load them after the server starts
+processor = None
+model = None
 
-# Pass the token so Hugging Face allows the download
-processor = AutoImageProcessor.from_pretrained(MODEL_NAME, token=HF_TOKEN)
-model = AutoModelForObjectDetection.from_pretrained(MODEL_NAME, token=HF_TOKEN)
+@app.on_event("startup")
+async def load_model():
+    """This runs AFTER port 8080 is open, preventing Cloud Run timeouts!"""
+    global processor, model
+    if not HF_TOKEN:
+        print("🚨 WARNING: HF_TOKEN environment variable is missing!")
+    
+    print("Downloading and loading model from Hugging Face...")
+    processor = AutoImageProcessor.from_pretrained(MODEL_NAME, token=HF_TOKEN)
+    model = AutoModelForObjectDetection.from_pretrained(MODEL_NAME, token=HF_TOKEN)
+    print("Model loaded successfully!")
 
 @app.get("/")
 def health_check():
-    return {"status": "healthy", "model": MODEL_NAME}
+    # If the model isn't loaded yet, tell the health checker it's starting
+    status = "healthy" if model is not None else "starting up"
+    return {"status": status, "model": MODEL_NAME}
 
 @app.post("/detect")
 async def detect_fashion(file: UploadFile = File(...)):
+    global processor, model
+    
+    # Catch any requests that come in before the download finishes
+    if processor is None or model is None:
+        return {"error": "Model is still downloading into the container. Try again in a few seconds!"}
+        
     contents = await file.read()
     image = Image.open(io.BytesIO(contents)).convert("RGB")
     
