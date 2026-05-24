@@ -1,21 +1,27 @@
-FROM python:3.10-slim
+FROM python:3.9-slim
 
+# Prevent Python from writing pyc files to disk and buffering stdout/stderr
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Tell Hugging Face to save the model data inside the /app folder
-ENV HF_HOME=/app/models
-
 WORKDIR /app
 
+# Install system dependencies needed for image processing if any
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install python packages
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
-# The Bake-In Trick: Download the model from Hugging Face during the build
-RUN python -c "from transformers import AutoImageProcessor, AutoModelForObjectDetection; \
-AutoImageProcessor.from_pretrained('yainage90/fashion-object-detection'); \
-AutoModelForObjectDetection.from_pretrained('yainage90/fashion-object-detection')"
+# Copy application files
+COPY app.py .
 
-COPY . .
+# Cloud Run injects a PORT environment variable dynamically (defaults to 8080)
+ENV PORT=8080
+EXPOSE 8080
 
-CMD ["python", "app.py"]
+# Run Uvicorn production server
+CMD uvicorn app:app --host 0.0.0.0 --port ${PORT}
