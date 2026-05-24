@@ -1,6 +1,7 @@
 import os
 import io
 import torch
+import numpy as np
 from fastapi import FastAPI, UploadFile, File, HTTPException
 import uvicorn
 from PIL import Image
@@ -20,14 +21,22 @@ async def predict(file: UploadFile = File(...)):
         contents = await file.read()
         image = Image.open(io.BytesIO(contents)).convert("RGB")
         
-        # 1. The safest resizing method for Hugging Face Transformers
         max_size = 800
         image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
 
         with torch.no_grad():
-            # 2. No brackets, explicitly passed as a single image
-            inputs = processor(images=image, return_tensors="pt")
-            outputs = model(**inputs)
+            # 1. REMOVED return_tensors="pt" to bypass the Hugging Face bug!
+            inputs = processor(images=image)
+            
+            # 2. THE ULTIMATE BYPASS: Manually convert the raw math to PyTorch tensors
+            pixel_values = torch.from_numpy(np.array(inputs["pixel_values"]))
+            model_inputs = {"pixel_values": pixel_values}
+            
+            if "pixel_mask" in inputs:
+                model_inputs["pixel_mask"] = torch.from_numpy(np.array(inputs["pixel_mask"]))
+            
+            # 3. Run the model using our manually created, bug-free tensors
+            outputs = model(**model_inputs)
             
             target_sizes = torch.tensor([[image.size[1], image.size[0]]])
             results = processor.post_process_object_detection(outputs, threshold=0.4, target_sizes=target_sizes)[0]
@@ -52,8 +61,8 @@ async def predict(file: UploadFile = File(...)):
         }
         
     except Exception as e:
-        # 3. THE TRACER BULLET
-        raise HTTPException(status_code=500, detail=f"V3_CRASH: {str(e)}")
+        # V4 Tracer Bullet just in case!
+        raise HTTPException(status_code=500, detail=f"V4_CRASH: {str(e)}")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
