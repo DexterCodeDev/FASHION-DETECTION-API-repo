@@ -1,7 +1,7 @@
 import os
 import io
 import torch
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, HTTPException
 import uvicorn
 from PIL import Image
 from transformers import AutoImageProcessor, AutoModelForObjectDetection
@@ -12,7 +12,7 @@ MODEL_NAME = "yainage90/fashion-object-detection"
 print("Loading DETR Fashion Model...")
 processor = AutoImageProcessor.from_pretrained(MODEL_NAME)
 model = AutoModelForObjectDetection.from_pretrained(MODEL_NAME)
-model.eval() # Put the model in pure inference mode
+model.eval() 
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
@@ -20,16 +20,13 @@ async def predict(file: UploadFile = File(...)):
         contents = await file.read()
         image = Image.open(io.BytesIO(contents)).convert("RGB")
         
-        # MEMORY FIX: Automatically resize huge images
+        # 1. The safest resizing method for Hugging Face Transformers
         max_size = 800
-        if max(image.size) > max_size:
-            ratio = max_size / max(image.size)
-            new_size = (int(image.size[0] * ratio), int(image.size[1] * ratio))
-            image = image.resize(new_size, Image.Resampling.LANCZOS)
+        image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
 
         with torch.no_grad():
-            # THE FIX: Added padding=True and formatted the image exactly as the docs requested!
-            inputs = processor(images=[image], return_tensors="pt", padding=True)
+            # 2. No brackets, explicitly passed as a single image
+            inputs = processor(images=image, return_tensors="pt")
             outputs = model(**inputs)
             
             target_sizes = torch.tensor([[image.size[1], image.size[0]]])
@@ -55,9 +52,8 @@ async def predict(file: UploadFile = File(...)):
         }
         
     except Exception as e:
-        # Our beautiful error catcher!
-        from fastapi import HTTPException
-        raise HTTPException(status_code=500, detail=f"AI Crash: {str(e)}")
+        # 3. THE TRACER BULLET
+        raise HTTPException(status_code=500, detail=f"V3_CRASH: {str(e)}")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
