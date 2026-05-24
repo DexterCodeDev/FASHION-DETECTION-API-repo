@@ -16,15 +16,12 @@ RUN pip install --no-cache-dir torch torchvision --index-url https://download.py
 # Install the rest of the requirements
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Pre-download the Hugging Face model so Cloud Run cold starts are instant
-RUN python -c "\
-from transformers import AutoImageProcessor, AutoModelForObjectDetection; \
-AutoImageProcessor.from_pretrained('yainage90/fashion-object-detection'); \
-AutoModelForObjectDetection.from_pretrained('yainage90/fashion-object-detection')"
+# Note: We are no longer pre-downloading the model weights here. 
+# The build server doesn't know your HF_TOKEN, so app.py will handle 
+# the download securely when the container starts.
 
 COPY . .
 
-# Cloud Run injects the PORT environment variable
 ENV PORT=8080
 EXPOSE 8080
 
