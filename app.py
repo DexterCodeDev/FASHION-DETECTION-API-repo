@@ -12,6 +12,10 @@ MODEL_NAME = "yainage90/fashion-object-detection"
 # Grab the token from Cloud Run's environment variables
 HF_TOKEN = os.environ.get("HF_TOKEN")
 
+# Fail instantly if the token is missing so we don't hit the 429 rate limit
+if not HF_TOKEN:
+    raise ValueError("🚨 MISSING TOKEN: Cloud Run could not find the HF_TOKEN environment variable!")
+
 # Pass the token so Hugging Face allows the download
 processor = AutoImageProcessor.from_pretrained(MODEL_NAME, token=HF_TOKEN)
 model = AutoModelForObjectDetection.from_pretrained(MODEL_NAME, token=HF_TOKEN)
