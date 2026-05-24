@@ -15,15 +15,6 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
-# Accept the token as a build argument and set it as an environment variable
-ARG HF_TOKEN
-ENV HF_TOKEN=$HF_TOKEN
-
-# Pre-download the Hugging Face model directly into the Docker image
-RUN python -c "from transformers import AutoImageProcessor, AutoModelForObjectDetection; \
-               AutoImageProcessor.from_pretrained('yainage90/fashion-object-detection'); \
-               AutoModelForObjectDetection.from_pretrained('yainage90/fashion-object-detection')"
-
 # Copy application files
 COPY app.py .
 
