@@ -4,6 +4,7 @@ from PIL import Image
 import torch
 from transformers import AutoImageProcessor, AutoModelForObjectDetection
 import io
+import os
 
 app = FastAPI(title="Fashion Object Detection API")
 
@@ -11,10 +12,13 @@ app = FastAPI(title="Fashion Object Detection API")
 ckpt = 'yainage90/fashion-object-detection'
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Load the model globally so it only loads once per instance boot
+# Fetch the token you added in the Cloud Run Console
+hf_token = os.environ.get("HF_TOKEN")
+
+# Load the model globally with the token to bypass the rate limit
 print("Loading model and processor...")
-processor = AutoImageProcessor.from_pretrained(ckpt)
-model = AutoModelForObjectDetection.from_pretrained(ckpt).to(device)
+processor = AutoImageProcessor.from_pretrained(ckpt, token=hf_token)
+model = AutoModelForObjectDetection.from_pretrained(ckpt, token=hf_token).to(device)
 print("Model loaded successfully.")
 
 @app.post("/predict/")
